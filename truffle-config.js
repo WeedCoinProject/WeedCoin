@@ -21,10 +21,7 @@
 const HDWalletProvider = require('@truffle/hdwallet-provider');
 const {
   mnemonicBNB,
-  mnemonicETH,
   BSCSCANAPIKEY,
-  ETHERSCANAPIKEY,
-  infuraProjectID
 } = require('./.secret.json')
 
 
@@ -63,12 +60,6 @@ module.exports = {
       timeoutBlocks: 200,
       skipDryRun: true
     },
-    rinkeby: {
-      provider: () => new HDWalletProvider(mnemonicETH, `https://rinkeby.infura.io/v3/${infuraProjectID}`),
-      network_id: 4,
-      gas: 4500000,
-      gasPrice: 10000000000,
-    }
   },
 
   // Set default mocha options here, use special reporters etc.
@@ -104,7 +95,6 @@ module.exports = {
     'truffle-plugin-verify'
   ],
   api_keys: {
-    bscscan: BSCSCANAPIKEY,
-    etherscan: ETHERSCANAPIKEY
+    bscscan: BSCSCANAPIKEY
   }
 };
