@@ -5,14 +5,12 @@ pragma solidity ^0.8.4;
 import "@openzeppelin/contracts/utils/Context.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
 // (Uni|Pancake)Swap libs are interchangeable
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router01.sol";
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-
 
 /*
     For lines that are marked ERC20 Token Standard, learn more at https://eips.ethereum.org/EIPS/eip-20. 
@@ -45,7 +43,26 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
 
     // Where burnt tokens are sent to. This is an address that no one can have accesses to.
     address private constant burnAccount = 0x000000000000000000000000000000000000dEaD;
-   
+    
+    /*
+        Tax rate = (_taxXXX / 10**_tax_XXXDecimals) percent.
+        For example: if _taxBurn is 1 and _taxBurnDecimals is 2.
+        Tax rate = 0.01%
+
+        If you want tax rate for burn to be 5% for example,
+        set _taxBurn to 5 and _taxBurnDecimals to 0.
+        5 * (10 ** 0) = 5
+    */
+
+    // Decimals of taxBurn. Used for have tax less than 1%.
+    uint8 private _taxBurnDecimals;
+
+    // Decimals of taxReward. Used for have tax less than 1%.
+    uint8 private _taxRewardDecimals;
+
+    // Decimals of taxLiquify. Used for have tax less than 1%.
+    uint8 private _taxLiquifyDecimals;
+
     // This percent of a transaction will be burnt.
     uint8 private _taxBurn;
 
@@ -56,7 +73,7 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
     uint8 private _taxLiquify; 
 
     // ERC20 Token Standard
-    uint8 private immutable _decimals;
+    uint8 private _decimals;
 
     // ERC20 Token Standard
     uint256 private  _totalSupply;
@@ -130,9 +147,9 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
         Events
     */
     event Burn(address from, uint256 amount);
-    event TaxBurnUpdate(uint8 previous, uint8 current);
-    event TaxRewardUpdate(uint8 previous, uint8 current);
-    event TaxLiquifyUpdate(uint8 previous, uint8 current);
+    event TaxBurnUpdate(uint8 previousTax, uint8 previousDecimals, uint8 currentTax, uint8 currentDecimal);
+    event TaxRewardUpdate(uint8 previousTax, uint8 previousDecimals, uint8 currentTax, uint8 currentDecimal);
+    event TaxLiquifyUpdate(uint8 previousTax, uint8 previousDecimals, uint8 currentTax, uint8 currentDecimal);
     event MinTokensBeforeSwapUpdated(uint256 previous, uint256 current);
     event SwapAndLiquify(
         uint256 tokensSwapped,
@@ -143,20 +160,20 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
     event IncludeAccountInReward(address account);
     event ExcludeAccountFromFee(address account);
     event IncludeAccountInFee(address account);
-    event EnabledAutoBurn(uint8 taxBurn_);
-    event EnabledReward(uint taxReward_);
-    event EnabledAutoSwapAndLiquify(uint8 taxLiquify_);
+    event EnabledAutoBurn();
+    event EnabledReward();
+    event EnabledAutoSwapAndLiquify();
     event DisabledAutoBurn();
     event DisabledReward();
     event DisabledAutoSwapAndLiquify();
     event Airdrop(uint256 amount);
     
-    constructor (string memory name_, string memory symbol_, uint8 decimals_, uint256 totalSupply_) {
+    constructor (string memory name_, string memory symbol_, uint8 decimals_, uint256 tokenSupply_) {
         // Sets the values for `name`, `symbol`, `totalSupply`, `currentSupply`, and `rTotal`.
         _name = name_;
         _symbol = symbol_;
         _decimals = decimals_;
-        _totalSupply = totalSupply_ * (10**decimals_);
+        _totalSupply = tokenSupply_ * (10 ** decimals_);
         _currentSupply = _totalSupply;
         _reflectionTotal = (~uint256(0) - (~uint256(0) % _totalSupply));
 
@@ -214,24 +231,66 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
     }
 
     /**
-     * @dev Returns the current burn tax rate in percentage.
+     * @dev Returns the current burn tax.
      */
     function taxBurn() public view virtual returns (uint8) {
         return _taxBurn;
     }
 
     /**
-     * @dev Returns the current reward tax rate in percentage.
+     * @dev Returns the current reward tax.
      */
     function taxReward() public view virtual returns (uint8) {
         return _taxReward;
     }
 
     /**
-     * @dev Returns the current liquify tax rate in percentage.
+     * @dev Returns the current liquify tax.
      */
     function taxLiquify() public view virtual returns (uint8) {
         return _taxLiquify;
+    }
+
+    /**
+     * @dev Returns the current burn tax decimals.
+     */
+    function taxBurnDecimals() public view virtual returns (uint8) {
+        return _taxBurnDecimals;
+    }
+
+    /**
+     * @dev Returns the current reward tax decimals.
+     */
+    function taxRewardDecimals() public view virtual returns (uint8) {
+        return _taxRewardDecimals;
+    }
+
+    /**
+     * @dev Returns the current liquify tax decimals.
+     */
+    function taxLiquifyDecimals() public view virtual returns (uint8) {
+        return _taxLiquifyDecimals;
+    }
+
+     /**
+     * @dev Returns true if auto burn feature is enabled.
+     */
+    function autoBurnEnabled() public view virtual returns (bool) {
+        return _autoBurnEnabled;
+    }
+
+    /**
+     * @dev Returns true if reward feature is enabled.
+     */
+    function rewardEnabled() public view virtual returns (bool) {
+        return _rewardEnabled;
+    }
+
+    /**
+     * @dev Returns true if auto swap and liquify feature is enabled.
+     */
+    function autoSwapAndLiquifyEnabled() public view virtual returns (bool) {
+        return _autoSwapAndLiquifyEnabled;
     }
 
     /**
@@ -611,7 +670,7 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
       *
       * - `account` is included in receiving reward.
       */
-    function _excludeAccountFromReward(address account) internal onlyOwner {
+    function _excludeAccountFromReward(address account) internal {
         require(!_isExcludedFromReward[account], "Account is already excluded.");
 
         if(_reflectionBalances[account] > 0) {
@@ -632,7 +691,7 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
       *
       * - `account` is excluded in receiving reward.
       */
-    function _includeAccountInReward(address account) internal onlyOwner {
+    function _includeAccountInReward(address account) internal {
         require(_isExcludedFromReward[account], "Account is already included.");
 
         for (uint256 i = 0; i < _excludedFromReward.length; i++) {
@@ -657,7 +716,7 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
       *
       * - `account` is included in fee.
       */
-    function excludeAccountFromFee(address account) internal onlyOwner {
+    function excludeAccountFromFee(address account) internal {
         require(!_isExcludedFromFee[account], "Account is already excluded.");
 
         _isExcludedFromFee[account] = true;
@@ -674,7 +733,7 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
       *
       * - `account` is excluded in fee.
       */
-    function includeAccountInFee(address account) internal onlyOwner {
+    function includeAccountInFee(address account) internal {
         require(_isExcludedFromFee[account], "Account is already included.");
 
         _isExcludedFromFee[account] = false;
@@ -732,7 +791,7 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
      * Emits {SwapAndLiquify} event indicating the amount of tokens swapped to eth,
      * the amount of ETH added to the LP, and the amount of tokens added to the LP.
      */
-    function swapAndLiquify(uint256 contractBalance) internal lockTheSwap {
+    function swapAndLiquify(uint256 contractBalance) private lockTheSwap {
         // Split the contract balance into two halves.
         uint256 tokensToSwap = contractBalance / 2;
         uint256 tokensAddToLiquidity = contractBalance - tokensToSwap;
@@ -789,16 +848,18 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
      *
      * Emits {Transfer} event. From this contract to the token and WETH Pai.
      */
-    function addLiquidity(uint256 ethAmount, uint256 tokenAmount) internal {
+    function addLiquidity(uint256 ethAmount, uint256 tokenAmount) private {
         _approve(address(this), address(_uniswapV2Router), tokenAmount);
 
         // Add the ETH and token to LP.
+        // The LP tokens will be sent to burnAccount.
+        // No one will have access to them, so the liquidity will be locked forever.
         _uniswapV2Router.addLiquidityETH{value: ethAmount}(
             address(this), 
             tokenAmount, 
             0, // slippage is unavoidable
             0, // slippage is unavoidable
-            owner(), 
+            burnAccount, // the LP is sent to burnAccount. 
             block.timestamp + 60 * 1000
         );
     }
@@ -838,9 +899,9 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
             values.tTransferAmount = values.amount;
         } else {
             // calculate fee
-            values.tBurnFee = _calculateTax(values.amount, _taxBurn);
-            values.tRewardFee = _calculateTax(values.amount, _taxReward);
-            values.tLiquifyFee = _calculateTax(values.amount, _taxLiquify);
+            values.tBurnFee = _calculateTax(values.amount, _taxBurn, _taxBurnDecimals);
+            values.tRewardFee = _calculateTax(values.amount, _taxReward, _taxRewardDecimals);
+            values.tLiquifyFee = _calculateTax(values.amount, _taxLiquify, _taxLiquifyDecimals);
             
             // amount after fee
             values.tTransferAmount = values.amount - values.tBurnFee - values.tRewardFee - values.tLiquifyFee;
@@ -904,8 +965,8 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
     /**
      * @dev Returns fee based on `amount` and `taxRate`
      */
-    function _calculateTax(uint256 amount, uint8 taxRate) private pure returns (uint256) {
-        return amount * taxRate / (10**2);
+    function _calculateTax(uint256 amount, uint8 tax, uint8 taxDecimals_) private pure returns (uint256) {
+        return amount * tax / (10 ** taxDecimals_) / (10 ** 2);
     }
 
     /*
@@ -921,13 +982,19 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
      * Requirements:
      *
      * - auto burn feature mush be disabled.
+     * - tax must be greater than 0.
+     * - tax decimals + 2 must be less than token decimals. 
+     * (because tax rate is in percentage)
      */
-    function enableAutoBurn(uint8 taxBurn_) public onlyOwner {
+    function enableAutoBurn(uint8 taxBurn_, uint8 taxBurnDecimals_) public onlyOwner {
         require(!_autoBurnEnabled, "Auto burn feature is already enabled.");
-        _autoBurnEnabled = true;
-        setTaxBurn(taxBurn_);
+        require(taxBurn_ > 0, "Tax must be greater than 0.");
+        require(taxBurnDecimals_ + 2  <= decimals(), "Tax decimals must be less than token decimals - 2");
         
-        emit EnabledAutoBurn(taxBurn_);
+        _autoBurnEnabled = true;
+        setTaxBurn(taxBurn_, taxBurnDecimals_);
+        
+        emit EnabledAutoBurn();
     }
 
     /**
@@ -939,13 +1006,19 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
      * Requirements:
      *
      * - reward feature mush be disabled.
+     * - tax must be greater than 0.
+     * - tax decimals + 2 must be less than token decimals. 
+     * (because tax rate is in percentage)
     */
-    function enableReward(uint8 taxReward_) public onlyOwner {
+    function enableReward(uint8 taxReward_, uint8 taxRewardDecimals_) public onlyOwner {
         require(!_rewardEnabled, "Reward feature is already enabled.");
+        require(taxReward_ > 0, "Tax must be greater than 0.");
+        require(taxRewardDecimals_ + 2  <= decimals(), "Tax decimals must be less than token decimals - 2");
+
         _rewardEnabled = true;
-        setTaxReward(taxReward_);
-        
-        emit EnabledReward(taxReward_);
+        setTaxReward(taxReward_, taxRewardDecimals_);
+
+        emit EnabledReward();
     }
 
     /**
@@ -958,9 +1031,14 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
       * Requirements:
       *
       * - auto swap and liquify feature mush be disabled.
+      * - tax must be greater than 0.
+      * - tax decimals + 2 must be less than token decimals. 
+      * (because tax rate is in percentage)
       */
-    function enableAutoSwapAndLiquify(uint8 taxLiquify_, address routerAddress, uint256 minTokensBeforeSwap_) public onlyOwner {
+    function enableAutoSwapAndLiquify(uint8 taxLiquify_, uint8 taxLiquifyDecimals_, address routerAddress, uint256 minTokensBeforeSwap_) public onlyOwner {
         require(!_autoSwapAndLiquifyEnabled, "Auto swap and liquify feature is already enabled.");
+        require(taxLiquify_ > 0, "Tax must be greater than 0.");
+        require(taxLiquifyDecimals_ + 2  <= decimals(), "Tax decimals must be less than token decimals - 2");
 
         _minTokensBeforeSwap = minTokensBeforeSwap_;
 
@@ -989,9 +1067,9 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
 
         // enable
         _autoSwapAndLiquifyEnabled = true;
-        setTaxLiquify(taxLiquify_);
+        setTaxLiquify(taxLiquify_, taxLiquifyDecimals_);
         
-        emit EnabledAutoSwapAndLiquify(taxLiquify_);
+        emit EnabledAutoSwapAndLiquify();
     }
 
     /**
@@ -1006,7 +1084,7 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
     function disableAutoBurn() public onlyOwner {
         require(_autoBurnEnabled, "Auto burn feature is already disabled.");
 
-        setTaxBurn(0);
+        setTaxBurn(0, 0);
         _autoBurnEnabled = false;
         
         emit DisabledAutoBurn();
@@ -1024,7 +1102,7 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
     function disableReward() public onlyOwner {
         require(_rewardEnabled, "Reward feature is already disabled.");
 
-        setTaxReward(0);
+        setTaxReward(0, 0);
         _rewardEnabled = false;
         
         emit DisabledReward();
@@ -1042,7 +1120,7 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
     function disableAutoSwapAndLiquify() public onlyOwner {
         require(_autoSwapAndLiquifyEnabled, "Auto swap and liquify feature is already disabled.");
 
-        setTaxLiquify(0);
+        setTaxLiquify(0, 0);
         _autoSwapAndLiquifyEnabled = false;
          
         emit DisabledAutoSwapAndLiquify();
@@ -1076,14 +1154,16 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
       * - auto burn feature must be enabled.
       * - total tax rate must be less than 100%.
       */
-    function setTaxBurn(uint8 taxBurn_) public onlyOwner {
+    function setTaxBurn(uint8 taxBurn_, uint8 taxBurnDecimals_) public onlyOwner {
         require(_autoBurnEnabled, "Auto burn feature must be enabled. Try the EnableAutoBurn function.");
         require(taxBurn_ + _taxReward + _taxLiquify < 100, "Tax fee too high.");
 
-        uint8 previous = _taxBurn;
+        uint8 previousTax = _taxBurn;
+        uint8 previousDecimals = _taxBurnDecimals;
         _taxBurn = taxBurn_;
+        _taxBurnDecimals = taxBurnDecimals_;
 
-        emit TaxBurnUpdate(previous, _taxBurn);
+        emit TaxBurnUpdate(previousTax, previousDecimals, taxBurn_, taxBurnDecimals_);
     }
 
     /**
@@ -1096,14 +1176,16 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
       * - reward feature must be enabled.
       * - total tax rate must be less than 100%.
       */
-    function setTaxReward(uint8 taxReward_) public onlyOwner {
+    function setTaxReward(uint8 taxReward_, uint8 taxRewardDecimals_) public onlyOwner {
         require(_rewardEnabled, "Reward feature must be enabled. Try the EnableReward function.");
         require(_taxBurn + taxReward_ + _taxLiquify < 100, "Tax fee too high.");
 
-        uint8 previous = _taxReward;
+        uint8 previousTax = _taxReward;
+        uint8 previousDecimals = _taxRewardDecimals;
         _taxReward = taxReward_;
+        _taxBurnDecimals = taxRewardDecimals_;
 
-        emit TaxRewardUpdate(previous, _taxReward);
+        emit TaxRewardUpdate(previousTax, previousDecimals, taxReward_, taxRewardDecimals_);
     }
 
     /**
@@ -1116,17 +1198,19 @@ contract ERC20Deflationary is Context, IERC20, Ownable {
       * - auto swap and liquify feature must be enabled.
       * - total tax rate must be less than 100%.
       */
-    function setTaxLiquify(uint8 taxLiquify_) public onlyOwner {
+    function setTaxLiquify(uint8 taxLiquify_, uint8 taxLiquifyDecimals_) public onlyOwner {
         require(_autoSwapAndLiquifyEnabled, "Auto swap and liquify feature must be enabled. Try the EnableAutoSwapAndLiquify function.");
         require(_taxBurn + _taxReward + taxLiquify_ < 100, "Tax fee too high.");
 
-        uint8 previous = _taxLiquify;
+        uint8 previousTax = _taxLiquify;
+        uint8 previousDecimals = _taxLiquifyDecimals;
         _taxLiquify = taxLiquify_;
+        _taxLiquifyDecimals = taxLiquifyDecimals_;
 
-        emit TaxLiquifyUpdate(previous, _taxLiquify);
+        emit TaxLiquifyUpdate(previousTax, previousDecimals, taxLiquify_, taxLiquifyDecimals_);
     }
-
-     /**
+    
+    /**
       * @dev Collects ETH dusts. 
       * Dust/leftover (usually in very small quantity)
       * comes from add to liquidity. The rate(price) of this token
