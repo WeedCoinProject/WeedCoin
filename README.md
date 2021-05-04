@@ -1,4 +1,20 @@
-# ERC20Deflationary
+# WeedCoin
+
+## What is WeedCoin?
+WeedCoin is an [ERC20](https://eips.ethereum.org/EIPS/eip-20) token that is deflationary by design.
+## WEED Tokenomics
+
+Burn, reward, and locked liquidity pool acquisition. 
+
+Total supply: 420,000,000,000,069 at the time of deployment.
+
+### Coin Allocation
+50% enters the exchange liquitity pool.
+10% airdrop to the first 42,069 WEED holders.
+10% 
+
+
+## 
 
 ** Reward, reflect, and distribute are used interchangeably in code comments.
 
